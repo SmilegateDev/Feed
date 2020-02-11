@@ -72,7 +72,7 @@ router.get('/getFeed', function(req, res, next) {
     tempFriendship = tempRec[0].friendship * tempRec[0].status;
 
     if (tempFriendship)
-      result.push([userFeed[i].objectID, userFeed[i].title, userFeed[i].content, (today - userFeed[i].createAt) * tempFriendship]);
+      result.push([userFeed[i].objectID, userFeed[i].title, userFeed[i].content, Math.pow((today - userFeed[i].createAt) * tempFriendship,-2)]);
   }
 
   result.sort(function compare(kv1, kv2) {
