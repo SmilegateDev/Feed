@@ -1,11 +1,33 @@
 var express = require('express');
 var router = express.Router();
-
+var Post = require('../schemas/post');
+var {Follow} = require('../models');
 // follower: 팔로잉을 하는 사람
 
-router.get('/getFeed', function(req, res, next) {
-  const userID = 52; // req.decoded.id
+function getCurrentDate(){
+  var date = new Date();
+  var year = date.getFullYear();
+  var month = date.getMonth();
+  var today = date.getDate();
+  collection_name=year.toString()+month.toString()+today.toString();
+  return collection_name;
+}
 
+router.get('/getFeed', function(req, res, next) {
+  const tokenvalue=nJwt.verify(req.headers.authorization,'nodebird', 'HS256');
+  const userID = tokenvalue.body.id; // req.decoded.id
+  //for(let i=0; i<3 ;i++){
+    var today=Number(getCurrentDate());
+    collectionName=today.toString();
+    Post.collectionName.find({writer:tokenvalue.body.id},async function(req,res){
+      try{
+        res.status(200).send(JSON.stringify(Post));
+      }catch(err){
+        res.status(500).send(err);
+      }
+    });
+  //}
+  /*
   const follow = [
     {"following": 3, "follower": 7, "friendship": 55, "status": 1},
     {"following": 10, "follower": 17, "friendship": 7, "status": 1},
@@ -43,7 +65,7 @@ router.get('/getFeed', function(req, res, next) {
     {"objectID": "bnvnrtytyea", "writer": 42,"title": "TITLE1", "content": "TEST12", "createAt": 14},
     {"objectID": "poipofdgdfg", "writer": 15, "title": "TITLE1","content": "TEST13", "createAt": 2}
   ];
-
+*/
   const today = 50;
 
   const userFollowRec = follow.filter(rec => { // 팔로워가 userID와 일치하는 레코드
@@ -78,7 +100,7 @@ router.get('/getFeed', function(req, res, next) {
   result.sort(function compare(kv1, kv2) {
     return kv2[3] - kv1[3];
   });
-  
+  console.log(result);
   res.send(result);
 });
 
