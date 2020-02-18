@@ -17,8 +17,8 @@ router.get('/getFeed', function(req, res, next) {
   const tokenvalue=nJwt.verify(req.headers.authorization,'nodebird', 'HS256');
   const userID = tokenvalue.body.id; // req.decoded.id
   //for(let i=0; i<3 ;i++){
-    var today=Number(getCurrentDate());
-    collectionName=today.toString();
+    var todayCollection=Number(getCurrentDate());
+    collectionName=todayCollection.toString();
     Post.collectionName.find({writer:tokenvalue.body.id},async function(req,res){
       try{
         res.status(200).send(JSON.stringify(Post));
