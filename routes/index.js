@@ -2,6 +2,9 @@ var express = require('express');
 var router = express.Router();
 var Post = require('../schemas/post');
 var {Follow} = require('../models');
+var nJwt = require('njwt');
+var Client = require('mongodb').MongoClient;
+
 // follower: 팔로잉을 하는 사람
 
 function getCurrentDate(){
@@ -14,18 +17,43 @@ function getCurrentDate(){
 }
 
 router.get('/getFeed', function(req, res, next) {
+  console.log('connect');
+  const tokenvalue=nJwt.verify(req.headers.authorization,'nodebird', 'HS256');
+  const userID = tokenvalue.body.id; // req.decoded.id
+  //for(let i=0; i<3 ;i++){
+    var todayCollection=Number(getCurrentDate());
+    var collectionName=todayCollection.toString();
+    Client.connect('mongodb://localhost:27017/Post',function(err,db){
+    if(err){
+        console.log(err);
+        res.send(err);
+    }
+    else{
+      console.log('connect');
+      var dbo = db.db('Post');
+      var field = {writer:tokenvalue.body.nickname};
+      var cursor = dbo.collection(collectionName).find(field).toArray(function(err,result){
+        console.log(result);
+        res.send(JSON.stringify(result));
+      });
+    }
+  });
+/*
+router.get('/getFeed', function(req, res, next) {
   const tokenvalue=nJwt.verify(req.headers.authorization,'nodebird', 'HS256');
   const userID = tokenvalue.body.id; // req.decoded.id
   //for(let i=0; i<3 ;i++){
     var todayCollection=Number(getCurrentDate());
     collectionName=todayCollection.toString();
-    Post.collectionName.find({writer:tokenvalue.body.id},async function(req,res){
+    Post.find({writer:tokenvalue.body.nickname},async function(err,Post){
+      console.log(JSON.stringify(Post));
       try{
-        res.status(200).send(JSON.stringify(Post));
+        res.send(JSON.stringify(Post));
       }catch(err){
-        res.status(500).send(err);
+        res.send(err);
       }
     });
+    */
   //}
   /*
   const follow = [
@@ -66,6 +94,7 @@ router.get('/getFeed', function(req, res, next) {
     {"objectID": "poipofdgdfg", "writer": 15, "title": "TITLE1","content": "TEST13", "createAt": 2}
   ];
 */
+/*
   const today = 50;
 
   const userFollowRec = follow.filter(rec => { // 팔로워가 userID와 일치하는 레코드
@@ -102,6 +131,7 @@ router.get('/getFeed', function(req, res, next) {
   });
   console.log(result);
   res.send(result);
+  */
 });
 
 module.exports = router;

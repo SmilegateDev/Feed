@@ -9,6 +9,12 @@
     "cookie-parser": "~1.4.4",
     "debug": "~2.6.9",
     "express": "~4.16.1",
-    "morgan": "~1.9.1"
+    "mongodb": "^3.5.3",
+    "mongoose": "^5.9.1",
+    "morgan": "~1.9.1",
+    "mysql": "^2.18.1",
+    "mysql2": "^2.1.0",
+    "njwt": "^1.0.0",
+    "sequelize": "^5.21.4"
   }
 }
