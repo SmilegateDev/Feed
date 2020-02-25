@@ -9,14 +9,6 @@ var indexRouter = require('./routes/index');
 
 var app = express();
 
-Client.connect('mongodb://localhost:27017/Post',function(err,db){
-    if(err){
-        console.log(err);
-    }
-    else{
-        console.log('success');
-    }
-})
 /*
 var db = mongoose.connection;
 db.on('error', console.error);
