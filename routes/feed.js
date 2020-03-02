@@ -35,7 +35,7 @@ function getCurrentNow(){
 };
 
 // follower: 팔로잉을 하는 사람
-router.get('/getFeed',async function(req, res) {
+router.post('/getFeed',async function(req, res) {
   var posts=[];
   const tokenvalue=nJwt.verify(req.headers.authorization,'nodebird', 'HS256');
   const myNickName=tokenvalue.body.nickname;
@@ -47,6 +47,10 @@ router.get('/getFeed',async function(req, res) {
   var postlist;
   var indexDate,lastIndexDate;
   var data={};
+  var newDate,newYear,newMonth,newToday,newPostDate;
+  const minimumDate=2020120;
+
+  console.log(req.body.year);
 
   await Follow.findAll({
     where:{
@@ -58,7 +62,7 @@ router.get('/getFeed',async function(req, res) {
   .then(result=>{
     followingInform=JSON.parse(JSON.stringify(result));
   });
-
+  //console.log(myId);
   //console.log(followingInform);
 
   for(var i=0; i<followingInform.length;i++){
@@ -67,40 +71,115 @@ router.get('/getFeed',async function(req, res) {
 
   client.get(myId, async function (err, result) {
     postlist = result;
-    console.log(result);
-    if (isEmpty(req.headers.currentDate) && isEmpty(postlist)) {
-      console.log(getCurrentDate());
-      indexDate = getCurrentDate();
-      await Post.findOne({ date: indexDate })
+    do{
+      if (req.body.year==null&&newPostDate==null) {
+        var dateNow=new Date();
+        var nowToday = dateNow.getDate();
+
+        dateNow.setDate(nowToday-2);
+        newYear = dateNow.getFullYear();
+        newMonth = dateNow.getMonth();
+        newToday = dateNow.getDate();
+        indexDate=newYear.toString()+newMonth.toString()+newToday.toString();
+        if(Number(indexDate)<=minimumDate){
+          indexDate=minimumDate;
+          await Post.find({
+            userId: followingIdList,
+            id: { '$gt': 0 }
+          })
+          .then(result=>{
+            data.Feed = result;
+            data.Year=newYear;
+            data.Month=newMonth;
+            data.Date=newToday;
+            data.isLastFeed=1;
+            console.log(data);
+            res.json(data);
+          })
+        }
+        //console.log(indexDate);
+        await Post.findOne({ date: indexDate })
+        .then(result => {
+          //console.log(result)
+          currentDateId = result.id;
+        });
+        await Post.find({
+          userId: followingIdList,
+          id: { '$gt': currentDateId }
+        })
+        .then(result=>{
+          data.Feed = result;
+        })
+
+        newPostDate=indexDate;
+      }else if (Object.keys(JSON.parse(postlist)).length < 30&&postlist!=null) {//redis에 저장된 게시물이 30개 이하일때
+        console.log('check');
+        var lastDate = req.body.year.toString()+req.body.month.toString()+req.body.date.toString();
+        newDate = new Date(req.body.year,req.body.month,req.body.date-2);
+        newYear = newDate.getFullYear();
+        newMonth = newDate.getMonth();
+        newToday = newDate.getDate();
+        newPostDate=newYear.toString()+newMonth.toString()+newToday.toString();
+        await Post.findOne({ date: newPostDate })
+        .then(result => {
+          console.log(result);
+          if(result==null){
+            console.log("check2");
+            res.json({
+              code:200,
+              isLastFeed:1
+            });
+          }
+        });
+      }else if(req.body.year==null&&data.Feed!=null&&Object.keys(data.Feed).length<30){
+        var lastDate = newPostDate; //이전에 저장된 date
+        newDate = new Date(newYear,newMonth,newToday-2);
+        newYear = newDate.getFullYear();
+        newMonth = newDate.getMonth();
+        newToday = newDate.getDate();
+        newPostDate=newYear.toString()+newMonth.toString()+newToday.toString();
+
+        await Post.findOne({ date: newPostDate })
         .then(result => {
           console.log(result)
           currentDateId = result.id;
         });
-    }
-    else if (Object.keys(JSON.parse(postlist)).length < 30) {
-      console.log('check');
-      var newDate = new Date(2020,2,3-2);
-      var newYear = newDate.getFullYear();
-      var newMonth = newDate.getMonth();
-      var newToday = newDate.getDate();
-      var newTime = newDate.getTime();
-      var newPostDate=newYear.toString()+newMonth.toString()+newToday.toString()+newTime.toString();
-      lastIndexDate = req.body.currentDate;
-      await Post.findOne({ date: newPostDate })
-      .then(res => {
-        currentDateId = res.id;
-      });
-    }else {
-      console.log(req.header.currentDate);
-      indexDate = getCurrentDate();
-      await Post.findOne({ date: indexDate })
-      .then(res => {
-        //console.log(res);
-        currentDateId = res.id;
-      });
+
+        await Post.find({
+          userId: followingIdList,
+          id: { '$gt': currentDateId, '$lt':lastDate }
+        })
+        .then(result=>{
+          data.Feed.push(result);
+        })
+      }else {
+        indexDate = getCurrentDate();
+        await Post.findOne({ date: indexDate })
+        .then(result => {
+          //console.log(res);
+          if(result==null){
+            res.json({
+              code:200,
+              massage:"마지막 게시물 입니다."
+            });
+          }
+          else{
+            currentDateId = res.id;
+          }
+          
+        });
+      }
+    }while(data.Feed!=undefined&&Object.keys(data.Post).length<30)
+    
+    if(data.Feed==undefined){
+      res.json({
+        code:200,
+        isLastFeed:1
+      })
     }
     // console.log(currentDateId);
-    if(isEmpty(lastIndexDate)){
+    /*
+    if(isEmpty(lastDate)){
       await Post.find({
         userId: followingIdList,
         id: { '$gt': currentDateId }
@@ -112,20 +191,18 @@ router.get('/getFeed',async function(req, res) {
     }else{
       await Post.find({
         userId: followingIdList,
-        id: { '$gt': currentDateId,'$lt':lastIndexDate }
+        id: { '$gt': currentDateId,'$lt':lastDate }
       })
       .then(result => {
         client.set(myId, JSON.stringify(result));
         postlist = result;
       });
     }
-
-    data.post=postlist;
-    data.newYear=newYear;
-    data.newMonth=newMonth;
-    data.newDate=newTime;
-    data.newTiem=newTime;
-    data.currentDate=newPostDate;
+    */
+    data.Year=newYear;
+    data.Month=newMonth;
+    data.Date=newToday;
+    //data.currentDate=newPostDate;
 
     console.log(data);
     res.json(data);
