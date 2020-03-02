@@ -67,22 +67,24 @@ router.get('/getFeed',async function(req, res) {
 
   client.get(myId, async function (err, result) {
     postlist = result;
+    console.log(result);
     if (isEmpty(req.headers.currentDate) && isEmpty(postlist)) {
       console.log(getCurrentDate());
       indexDate = getCurrentDate();
       await Post.findOne({ date: indexDate })
         .then(result => {
+          console.log(result)
           currentDateId = result.id;
         });
     }
     else if (Object.keys(JSON.parse(postlist)).length < 30) {
       console.log('check');
-      var newDate = new Date(req.body.year,req.body.month,req.body.time-2);
+      var newDate = new Date(2020,2,3-2);
       var newYear = newDate.getFullYear();
       var newMonth = newDate.getMonth();
       var newToday = newDate.getDate();
       var newTime = newDate.getTime();
-      newPostDate=newYear.toString()+newMonth.toString()+newToday.toString()+newTime.toString();
+      var newPostDate=newYear.toString()+newMonth.toString()+newToday.toString()+newTime.toString();
       lastIndexDate = req.body.currentDate;
       await Post.findOne({ date: newPostDate })
       .then(res => {
@@ -123,8 +125,10 @@ router.get('/getFeed',async function(req, res) {
     data.newMonth=newMonth;
     data.newDate=newTime;
     data.newTiem=newTime;
+    data.currentDate=newPostDate;
 
-    res.json(postlist);
+    console.log(data);
+    res.json(data);
   });
   
 /*
