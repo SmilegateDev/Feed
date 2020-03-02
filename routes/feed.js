@@ -4,8 +4,16 @@ var Post = require('../schemas/post');
 var {Follow} = require('../models');
 var nJwt = require('njwt');
 var Client = require('mongodb').MongoClient;
+var dotenv = require('dotenv');
+var client = require('../cache_redis');
 
-// follower: 팔로잉을 하는 사람
+var isEmpty = function(value){ 
+  if( value == "" || value == null || value == undefined || ( value != null && typeof value == "object" && !Object.keys(value).length ) ){ 
+    return true 
+  }else{ 
+    return false 
+  } 
+};
 
 function getCurrentDate(){
   var date = new Date();
@@ -14,30 +22,108 @@ function getCurrentDate(){
   var today = date.getDate();
   collection_name=year.toString()+month.toString()+today.toString();
   return collection_name;
-}
+};//오늘 날짜 체크
 
-router.get('/getFeed', function(req, res, next) {
-  console.log('connect');
+function getCurrentNow(){
+  var date = new Date();
+  var year = date.getFullYear();
+  var month = date.getMonth();
+  var today = date.getDate();
+  var time = date.getTime();
+  collection_name=year.toString()+month.toString()+today.toString()+time.toString();
+  return collection_name;
+};
+
+// follower: 팔로잉을 하는 사람
+router.get('/getFeed',async function(req, res) {
+  var posts=[];
   const tokenvalue=nJwt.verify(req.headers.authorization,'nodebird', 'HS256');
-  const userID = tokenvalue.body.id; // req.decoded.id
-  //for(let i=0; i<3 ;i++){
-    var todayCollection=Number(getCurrentDate());
-    var collectionName=todayCollection.toString();
-    Client.connect('mongodb://localhost:27017/Post',function(err,db){
-    if(err){
-        console.log(err);
-        res.send(err);
+  const myNickName=tokenvalue.body.nickname;
+  const myId = tokenvalue.body.id; // req.decoded.id
+  var followingInform;
+  var currentDateId;
+  var postlist;
+  var followingIdList=new Array();
+  var postlist;
+  var indexDate,lastIndexDate;
+  var data={};
+
+  await Follow.findAll({
+    where:{
+      followerId:myId
+    },
+    attributes:['followingId','like_num','comment_num'],
+    paranoid:true
+  })
+  .then(result=>{
+    followingInform=JSON.parse(JSON.stringify(result));
+  });
+
+  //console.log(followingInform);
+
+  for(var i=0; i<followingInform.length;i++){
+    followingIdList.push(followingInform[i].followingId);
+  }
+
+  client.get(myId, async function (err, result) {
+    postlist = result;
+    if (isEmpty(req.headers.currentDate) && isEmpty(postlist)) {
+      console.log(getCurrentDate());
+      indexDate = getCurrentDate();
+      await Post.findOne({ date: indexDate })
+        .then(result => {
+          currentDateId = result.id;
+        });
     }
-    else{
-      console.log('connect');
-      var dbo = db.db('Post');
-      var field = {writer:tokenvalue.body.nickname};
-      var cursor = dbo.collection(collectionName).find(field).toArray(function(err,result){
-        console.log(result);
-        res.send(JSON.stringify(result));
+    else if (Object.keys(JSON.parse(postlist)).length < 30) {
+      console.log('check');
+      var newDate = new Date(req.body.year,req.body.month,req.body.time-2);
+      var newYear = newDate.getFullYear();
+      var newMonth = newDate.getMonth();
+      var newToday = newDate.getDate();
+      var newTime = newDate.getTime();
+      newPostDate=newYear.toString()+newMonth.toString()+newToday.toString()+newTime.toString();
+      lastIndexDate = req.body.currentDate;
+      await Post.findOne({ date: newPostDate })
+      .then(res => {
+        currentDateId = res.id;
+      });
+    }else {
+      console.log(req.header.currentDate);
+      indexDate = getCurrentDate();
+      await Post.findOne({ date: indexDate })
+      .then(res => {
+        //console.log(res);
+        currentDateId = res.id;
       });
     }
+    // console.log(currentDateId);
+    if(isEmpty(lastIndexDate)){
+      await Post.find({
+        userId: followingIdList,
+        id: { '$gt': currentDateId }
+      })
+      .then(result => {
+        client.set(myId, JSON.stringify(result));
+        postlist = result;
+      });
+    }else{
+      await Post.find({
+        userId: followingIdList,
+        id: { '$gt': currentDateId,'$lt':lastIndexDate }
+      })
+      .then(result => {
+        client.set(myId, JSON.stringify(result));
+        postlist = result;
+      });
+    }
+
+    data.post=postlist;
+    data.
+
+    res.json(postlist);
   });
+  
 /*
 router.get('/getFeed', function(req, res, next) {
   const tokenvalue=nJwt.verify(req.headers.authorization,'nodebird', 'HS256');
