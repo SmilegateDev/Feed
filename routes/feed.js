@@ -119,7 +119,10 @@ router.get('/getFeed',async function(req, res) {
     }
 
     data.post=postlist;
-    data.
+    data.newYear=newYear;
+    data.newMonth=newMonth;
+    data.newDate=newTime;
+    data.newTiem=newTime;
 
     res.json(postlist);
   });
