@@ -14,7 +14,7 @@ const postSchema = new mongoose.Schema({
     lati:{type: Number, default:null},
     long:{type: Number ,default:null},
     userId:{type: Number,required:true},
-    createValue:{type:Number,required:true}
+    unixTime:{type:Number,required:true}
 },
 {
     collection:'posts',
