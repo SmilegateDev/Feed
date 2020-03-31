@@ -7,8 +7,15 @@ var nJwt = require('njwt');
 //var Client = require('mongodb').MongoClient;
 var dotenv = require('dotenv');
 var client = require('../cache_redis');
+var cache = require('../cache_Feed');
 var {promisify} = require('util');
 const getRedis = promisify(client.get).bind(client);
+const getCache = promisify(cache.get).bind(cache);
+
+function sleep (delay) {
+  var start = new Date().getTime();
+  while (new Date().getTime() < start + delay);
+}
 
 function PrintTime() {
   var today = new Date();
@@ -43,12 +50,17 @@ var isEmpty = function (value) {
 };
 
 var checkLike = async function(myId,posts){
+  /*
   let isLikeList=[];
   let LikeObject={};
   let objectId;
   let isLike;
-  for(var i=0;i<Object.keys(posts).length;i++){
-    objectId=posts[i]._id;
+  console.log("check : "+isEmpty(posts._id));
+  if(isEmpty(posts)){
+    return {};
+  }
+  if(isEmpty(posts._id)==false){
+    objectId=posts._id;
     await Likes.findOne({
       where:{
         liker:myId,
@@ -64,9 +76,74 @@ var checkLike = async function(myId,posts){
       }
       LikeObject[objectId]=isLike;
     });
+  }else{
+    for(var i=0;i<Object.keys(posts).length;i++){
+      objectId=posts[i]._id;
+      await Likes.findOne({
+        where:{
+          liker:myId,
+          object_Id:objectId.toString()
+        },
+      })
+      .then(result=>{
+        //console.log(result[0].object_Id);
+        if(isEmpty(result)){
+          isLike=0;
+        }else{
+          isLike=1;
+        }
+        LikeObject[objectId]=isLike;
+      });
+    }
   }
   //console.log(LikeObject);
   return LikeObject;
+  */
+ let objectIdList=[];
+ let likeObject={};
+
+ const postLen = posts.length;
+
+  if(isEmpty(posts._id)==false){
+    objectId=posts._id;
+    await Likes.findOne({
+      where:{
+        liker:myId,
+        object_Id:objectId.toString()
+      },
+    })
+    .then(result=>{
+      //console.log(result[0].object_Id);
+      if(isEmpty(result)){
+        isLike=0;
+      }else{
+        isLike=1;
+      }
+      LikeObject[objectId]=isLike;
+    });
+  }else{
+    for (let i = 0; i < postLen; i++) {
+      objectIdList.push(posts[i]._id.toString());
+      likeObject[posts[i]._id.toString()] = 0;
+    }
+  
+    await Likes.findAll({
+      where:{
+        liker: myId,
+        object_Id: objectIdList
+      },
+      attributes:['object_Id']
+    })
+    .then(result=>{
+      const resultLen = result.length;
+  
+      for (let i = 0; i < resultLen; i++) {
+        likeObject[result[i].object_Id] = 1;
+      }
+    })
+    //console.log(likeObject);
+    return likeObject;
+  }
 }
 
 // follower: 팔로잉을 하는 사람
@@ -75,6 +152,7 @@ router.post('/getFeed', async function (req, res) {
   const tokenvalue = nJwt.verify(req.headers.authorization, 'nodebird', 'HS256');
   const myNickName = tokenvalue.body.nickname;
   const myId = tokenvalue.body.id; // req.decoded.id
+  var finddate=3;
   var followingInform;
   var currentDateId;
   var postlist;
@@ -88,8 +166,10 @@ router.post('/getFeed', async function (req, res) {
   var loop=0;
   var onePageValue=10;
   var friendShip={};
+  var dateFactor = -2;
   console.log("first test:"+req.body.date);
   console.log(req.body.year,req.body.month,req.body.date);
+  var obejctLengthCheck;
   await Follow.findAll({
     where: {
       followerId: myId
@@ -109,7 +189,7 @@ router.post('/getFeed', async function (req, res) {
   for(let i=0; i<followingInform.length; i++){
     friendShip[followingIdList[i]]=followingInform[i].like_num+(followingInform[i].comment_num*2)+1;
   }//친밀도 계산
-  console.log(friendShip);
+  //console.log(friendShip);
   console.log(followingIdList);
 
   if(req.body.isLastFeed==1){
@@ -118,10 +198,14 @@ router.post('/getFeed', async function (req, res) {
       message:"마지막 게시물입니다."
     });
   }
-
+  let feedKey='_feed_'+myId;
+  var cacheData=await getCache(feedKey);
   if(req.body.year==null){
     client.del(myId);
     console.log('redis reset success');
+    if(cacheData!=null){
+      client.set(myId,cacheData);
+    }
   };
 
   var timeNow=Unix_timeStampConv();
@@ -129,19 +213,25 @@ router.post('/getFeed', async function (req, res) {
   client.get(myId, async function (err, result) {
     if(result==null){
       console.log('first');
-    }else{  
+    }else if(req.body.year!=null){  
       newYear=req.body.year;
       newMonth=req.body.month;
       newToday=req.body.date;//사용자에게서 온 Date를 설정
       postlist = JSON.parse(result);
+    }else if(req.body.year==null&&result!=null){
+      postlist = JSON.parse(result);
+      if(isEmpty(postlist._id)==false){
+        obejctLengthCheck=1;
+      }
+      //console.log(Object.keys(postlist).length);
     }
     do {
-      /* 완전한 첫번째 요청 */
+      /* cache에 자료가 없는 첫 요청 */
       if (req.body.year == null && isEmpty(data) && postlist == null) {
         console.log("first req");
         var dateNow = new Date();
         var nowToday = dateNow.getDate();
-        dateNow.setDate(nowToday - 2);
+        dateNow.setDate(nowToday - finddate);
         newYear = dateNow.getFullYear();
         newMonth = dateNow.getMonth();
         newToday = dateNow.getDate();
@@ -161,16 +251,20 @@ router.post('/getFeed', async function (req, res) {
             .then(async result => {
               for(let j=0;j<Object.keys(result).length;i++){
                 tempdata=JSON.parse(JSON.stringify(result[j]));
-                tempdata['friendShip']=friendShip[followingIdList[i]];
+                tempdata['value']=friendShip[followingIdList[i]]*Math.pow(timeNow-tempdata.unixTime,dateFactor);
                 Posts.push(tempdata);
               }
             });
           }
+
+          Posts.Feed.sort(function(a,b){
+            return a.value>b.seq ? -1 : a.value > b.value ? 1: 0;
+          })
+
           let isLikeList=await checkLike(myId,Posts);
-            //console.log(isLikeList);
+
           data.Feed = Posts;
           data.isLiked=isLikeList;
-          console.log(data.isLiked)
           data.Year = 2020;
           data.Month = 1;
           data.Date = 29;
@@ -194,17 +288,19 @@ router.post('/getFeed', async function (req, res) {
               id: { '$gt': currentDateId }
             })
             .then(async result => {
-              //console.log(followingIdList[i]);
-              //console.log(result);
               for(let j=0;j<Object.keys(result).length;j++){
                 tempdata=JSON.parse(JSON.stringify(result[j]));
-                tempdata['friendShip']=friendShip[followingIdList[i]];
+                tempdata['value']=friendShip[followingIdList[i]]*Math.pow(timeNow-tempdata.unixTime,dateFactor);
                 Posts.push(tempdata);
               }
             });
           }
+          Posts.sort(function(a,b){
+            return a.value > b.value ? -1 : a.value > b.value ? 1: 0;
+          })
           console.log(newYear,newMonth,newToday);
           var isLikeList=await checkLike(myId,Posts);
+          console.log(Posts.length,Object.keys(isLikeList).length)
           data.Feed = Posts;
           data.isLiked=isLikeList;
           data.Year = newYear;
@@ -212,17 +308,69 @@ router.post('/getFeed', async function (req, res) {
           data.Date = newToday;
           data.isLastFeed = 0;
           postlist=data;
-          //console.log(Object.keys(data.Feed).length,Object.keys(data.isLiked).length);
+          //console.log(data);
           console.log("first find Post");
           console.log("first update Success");
           //console.log(data);
           client.set(myId, JSON.stringify(data));
         }
-      } else if (req.body.year != null && (postlist==null||postlist.Feed==null||Object.keys(postlist.Feed).length < onePageValue)) {
+      }else if(req.body.year==null&&postlist!=null&&isEmpty(postlist._id)&&Object.keys(postlist).length>=onePageValue&&isEmpty(postlist.Feed)){
+        console.log("cache call");
+        console.log(isEmpty(postlist._id),Object.keys(postlist).length);
+        //console.log(Object.keys(postlist).length);
+        let dateNow = new Date();
+        let nowToday = dateNow.getDate();
+        dateNow.setDate(nowToday);
+        let newYear = dateNow.getFullYear();
+        let newMonth = dateNow.getMonth();
+        let newToday = dateNow.getDate();
+        //console.log(postlist);
+        let sendLike={};
+        let sendData={};//front로 보내주는애들
+        let isLikeList;
+        let updateData={};//front에 보낸 게시물을 제외한 나머지 애들을 다시 redis로
+        let pageValue;
+        if(Object.keys(postlist).length>onePageValue){
+          pageValue=10;
+        }else{
+          pageValue=Object.keys(postlist).length;
+        }
+        isLikeList=await checkLike(myId,postlist);
+        //console.log("isLike is : "+isLikeList+Object.keys(postlist).length);
+        updateData.isLiked={};
+        for(let i=0;i<Object.keys(postlist).length;i++){
+          let getFeedId=postlist[i]._id;
+          updateData.isLiked[getFeedId]=isLikeList[getFeedId];
+        }
+        Posts=postlist.splice(0,pageValue);
+        sendData.isLiked={};
+        for(let i=0;i<pageValue;i++){
+          let getId=Posts[i]._id.toString();
+          sendData.isLiked[getId]=updateData.isLiked[getId];
+          //console.log(sendData.isLiked[getId]);
+          delete updateData.isLiked[getId];
+        }
+        sendData.Feed=Posts;
+        sendData.isLiked=sendData.isLiked;
+        sendData.Year = newYear;
+        sendData.Month = newMonth;
+        sendData.Date = newToday;
+        sendData.isLastFeed = 0;
+        updateData.Feed=postlist;
+        updateData.isLiked=updateData.isLiked;
+        updateData.Year=newYear;
+        updateData.Month=newMonth;
+        updateData.Date=newToday;
+        updateData.isLastFeed=0;
+        postlist=updateData;
+        client.set(myId,JSON.stringify(updateData));
+        res.json(sendData);
+        break;
+      }else if (req.body.year != null && (postlist==null||postlist.Feed==null||Object.keys(postlist.Feed).length < onePageValue)) {
         //2번째 요청부터 redis에 저장된 게시물이 30개 이하일때, redis에 저장한 게시물 없을때
-        //console.log('redis에 저장된 게시물 개수 : '+Object.keys(postlist.Feed).length);
+        console.log('redis에 저장된 게시물 개수 : '+Object.keys(postlist.Feed).length);
         var lastDate = newYear.toString() + newMonth.toString() + newToday.toString();
-        newDate = new Date(newYear, newMonth, newToday-2);
+        newDate = new Date(newYear, newMonth, newToday-finddate);
         newYear = newDate.getFullYear();
         newMonth = newDate.getMonth();
         newToday = newDate.getDate();
@@ -251,7 +399,7 @@ router.post('/getFeed', async function (req, res) {
             .then(async result => {
               for(let j=0;j<Object.keys(result).length;j++){
                 tempdata=JSON.parse(JSON.stringify(result[i]));
-                tempdata['friendShip']=friendShip[followingIdList[i]];
+                tempdata['value']=friendShip[followingIdList[i]]*Math.pow(timeNow-tempdata.unixTime,dateFactor);
                 Posts.push(tempdata);
               }
             })
@@ -259,6 +407,9 @@ router.post('/getFeed', async function (req, res) {
               console.log(err);
             });
           }
+          Posts.sort(function(a,b){
+            return a.value > b.value ? -1 : a.value > b.value ? 1: 0;
+          })
           let isLikeList=await checkLike(myId,Posts);
           //console.log(isLikeList);
           for(var i=0;i<Object.keys(Posts).length;i++){
@@ -279,6 +430,7 @@ router.post('/getFeed', async function (req, res) {
           indexDate=newPostDate;
           let getlast=await getRedis(myId);
           let lastdata = JSON.parse(getlast);
+          //console.log("last는"+JSON.stringify(lastdata));
           await Post.findOne({ 
             date: indexDate 
           })
@@ -295,42 +447,97 @@ router.post('/getFeed', async function (req, res) {
             .then(async result4 => {
               for(let j=0;j<Object.keys(result4).length;j++){
                 data=JSON.parse(JSON.stringify(result4[j]));
-                data['friendShip']=friendShip[followingIdList[i]];
+                data['value']=friendShip[followingIdList[i]]*Math.pow(timeNow-data.unixTime,dateFactor);
                 Posts.push(data);
               }
             });
           }
-          
+          Posts.sort(function(a,b){
+            return a.value > b.value ? -1 : a.value > b.value ? 1: 0;
+          })
           let isLikeList=await checkLike(myId,Posts);
           console.log("추가할 게시물:"+Object.keys(Posts).length);
+          if(lastdata.Feed!=undefined){
+            let alreadyPush=[];
+            for(var i=0;i<Object.keys(Posts).length;i++){
+              let getFeedId=Posts[i]._id.toString();
+              if(lastdata.Feed==null){
+                for(let j=0;j<Object.keys(lastdata).length;j++){
+                  if(Posts[i]._id==lastdata[j]._id){
+                    console.log("push!");
+                    alreadyPush.push(i);
+                    break;
+                  }
+                }
+                let a = alreadyPush.find(a=>{
+                  return a===i;
+                })
+                if(a==null||isEmpty(alreadyPush))
+                  lastdata.Feed.push(Posts[i]);
+              }else{
+                for(let j=0;j<Object.keys(lastdata.Feed).length;j++){
+                  if(Posts[i]._id==lastdata.Feed[j]._id){
+                    console.log("push!");
+                    alreadyPush.push(i);
+                    break;
+                  }
+                }
+                let a = alreadyPush.find(a=>{
+                  return a===i;
+                })
+                if(a==null||isEmpty(alreadyPush)){
+                  lastdata.Feed.push(Posts[i]);
+                }
+              }
+              lastdata.isLiked[getFeedId]=isLikeList[getFeedId];
+            }
+            
+            //console.log(lastdata);
+            //sleep(100000);
+            /*
           for(var i=0;i<Object.keys(Posts).length;i++){
             let getFeedId=Posts[i]._id;
             lastdata.Feed.push(Posts[i]);
             lastdata.isLiked[getFeedId]=isLikeList[getFeedId];
           }
-          console.log("재피드 요청 개수 :"+Object.keys(lastdata.Feed).length)
-          lastdata.Year=newYear;
-          lastdata.Month=newMonth;
-          lastdata.Date=newToday;
-          lastdata.isLastFeed=0;
-          postlist=lastdata;
-          client.set(myId,JSON.stringify(lastdata));
+          */
         }
+        console.log("재피드 요청 개수 :"+Object.keys(lastdata.Feed).length)
+        lastdata.Year=newYear;
+        lastdata.Month=newMonth;
+        lastdata.Date=newToday;
+        lastdata.isLastFeed=0;
+        postlist=lastdata;
+        client.set(myId,JSON.stringify(lastdata));
+        
+      }
       } else if (req.body.year == null && (postlist==null||postlist.Feed==null||Object.keys(postlist.Feed).length < onePageValue)) {
         //첫번째 요청에서 30개가 되지 않았을때
+        if(postlist.Feed!=null){
+          console.log("check last posts : "+Object.keys(postlist.Feed).length);
+        }
+        if(obejctLengthCheck==1||Object.keys(postlist).length==1||postlist.Feed==null){
+          var dateNow = new Date();
+          var nowToday = dateNow.getDate();
+          dateNow.setDate(nowToday);
+          newYear = dateNow.getFullYear();
+          newMonth = dateNow.getMonth();
+          newToday = dateNow.getDate();
+          obejctLengthCheck=0;
+        }//캐시에서 불러온 게시물이 1개일때
         console.log('첫번째 요청 but not over 30');
-        let lastdata;
+        var lastdata={};
         var lastDate = newYear.toString() + newMonth.toString() + newToday.toString();//이전에 저장된 date
         var lastDateId;
         console.log(newYear, newMonth, newToday,lastDate);
-        var dateNow = new Date(newYear, newMonth, newToday - 2);
+        var dateNow = new Date(newYear, newMonth, newToday - finddate);
         newYear = dateNow.getFullYear();
         newMonth = dateNow.getMonth();
         newToday = dateNow.getDate();
         indexDate = newYear.toString() + newMonth.toString() + newToday.toString();
 
         checkDate=checkOver(newYear,newMonth,newToday);//날짜 자리수
-
+        //console.log(postlist);
         console.log(indexDate);
         if (Number(checkDate) <= minimumDate) {
           console.log('첫번째 요청인데 30개가 안되는데 가다보니 첫번째 날일때');
@@ -351,14 +558,24 @@ router.post('/getFeed', async function (req, res) {
             .then(result2=>{
               for(let j=0;j<Object.keys(result2).length;j++){
                 tempdata=JSON.parse(JSON.stringify(result2[j]));
-                tempdata['friendShip']=friendShip[followingIdList[i]];
-                Posts.push(data);
+                tempdata['value']=friendShip[followingIdList[i]]*Math.pow(timeNow-tempdata.unixTime,dateFactor);
+                Posts.push(tempdata);
               }
             });
           }
-
-          var beforeData = await getRedis(myId);
-          lastdata = JSON.parse(beforeData);
+          Posts.sort(function(a,b){
+            return a.value > b.value ? -1 : a.value > b.value ? 1: 0;
+          })
+          
+          var getLastData = await getRedis(myId);
+          var lastdataFromCache = JSON.parse(getLastData);
+          console.log(lastdataFromCache);
+          if(isEmpty(lastdataFromCache._id)==false){
+            lastdata.Feed=lastdataFromCache;
+          }else{
+            lastdata=lastdataFromCache;
+          }
+          //console.log(lastdata);
           let isLikeList=await checkLike(myId,Posts);
           for(var i=0;i<Object.keys(Posts).length;i++){
             let getFeedId=Posts[i]._id;
@@ -369,12 +586,14 @@ router.post('/getFeed', async function (req, res) {
           lastdata.Month = 1;
           lastdata.Date = 29;
           lastdata.isLastFeed = 1;
-          client.set(myId, JSON.stringify(lastdata));
+          //client.set(myId, JSON.stringify(lastdata));
+          //console.log(lastdata);
           res.json(lastdata);
           break;
         } else {
           console.log('첫번째 요청인데 30개가 안될때');
           let lastDateId;
+          let lastdataFromCache;//캐시로부터 온 데이터
           await Post.findOne({ 
             date: lastDate 
           })
@@ -389,38 +608,131 @@ router.post('/getFeed', async function (req, res) {
           .then(async result => {
             currentDateId = result.id;//2일전 날짜
             for(let i=0;i<followingIdList.length;i++){
-              await Post.find({
-                userId: followingIdList[i],
-                id: { '$gt': currentDateId, '$lt': lastDateId }
-              })
-              .then(result => {
-                for(let j=0;j<Object.keys(result).length;j++){
-                  data=JSON.parse(JSON.stringify(result[j]));
-                  data['friendShip']=friendShip[followingIdList[i]];
-                  Posts.push(data);
-                }
-              });
+              if(obejctLengthCheck==0){
+                await Post.find({
+                  userId: followingIdList[i],
+                  id: { '$gt': lastDateId }
+                })
+                .then(result => {
+                  for(let j=0;j<Object.keys(result).length;j++){
+                    data=JSON.parse(JSON.stringify(result[j]));
+                    data['value']=friendShip[followingIdList[i]]*Math.pow(timeNow-data.unixTime,dateFactor);
+                    Posts.push(data);
+                  }
+                });
+                Posts.sort(function(a,b){
+                  return a.value > b.value ? -1 : a.value > b.value ? 1: 0;
+                })
+              }else{
+                console.log("console:"+followingIdList.length);
+                await Post.find({
+                  userId: followingIdList[i],
+                  id: { '$gt': currentDateId, '$lt': lastDateId }
+                })
+                .then(result => {
+                  for(let j=0;j<Object.keys(result).length;j++){
+                    data=JSON.parse(JSON.stringify(result[j]));
+                    data['value']=friendShip[followingIdList[i]]*Math.pow(timeNow-data.unixTime,dateFactor);
+                    Posts.push(data);
+                  }
+                });
+                console.log("Post개수:"+Posts.length)
+                Posts.sort(function(a,b){
+                  return a.value > b.value ? -1 : a.value > b.value ? 1: 0;
+                })
+              }
             }
             var getLastData=await getRedis(myId);
               //console.log(getLastData);
-            lastdata = JSON.parse(getLastData);
+            lastdataFromCache = JSON.parse(getLastData);
+            
+            console.log("Test:"+lastdataFromCache.Feed);
+            if(isEmpty(lastdataFromCache._id)==false){
+              lastdata.Feed=[];
+              lastdata.isLiked={};
+              lastdata.Feed.push(lastdataFromCache);
+              let isLikeList=await checkLike(myId,lastdata.Feed);
+              lastdata.isLiked=isLikeList;
+              console.log(isLikeList);
+              console.log("--------------------------");
+            }else if(Object.keys(lastdataFromCache).length==1){
+              lastdata.Feed=[];
+              lastdata.isLiked={};
+              lastdata.Feed.push(lastdataFromCache[0]);
+              let isLikeList=await checkLike(myId,lastdata.Feed);
+              lastdata.isLiked=isLikeList;
+              console.log(lastdata);
+              console.log("--------------------------");
+            }else if(lastdataFromCache.Feed==null){
+              //미리 푸시해놓은 캐시를 불러올때
+              lastdata.Feed=[];
+              lastdata.isLiked={};
+              for(let i=0;i<Object.keys(lastdataFromCache).length;i++){
+                //console.log(lastdataFromCache[i]);
+                lastdata.Feed.push(lastdataFromCache[i]);
+              }
+              let isLikeList=await checkLike(myId,lastdata.Feed);
+              lastdata.isLiked=isLikeList;
+            }else{
+              lastdata=lastdataFromCache;
+            }
+            //console.log(lastdata);
+            
             let isLikeList=await checkLike(myId,Posts);
             if(lastdata.Feed!=undefined){
+              //console.log("lastdata.Feed가 있냐?"+lastdata.Feed);
+              let alreadyPush=[];
               for(var i=0;i<Object.keys(Posts).length;i++){
-                let getFeedId=Posts[i]._id;
-                lastdata.Feed.push(Posts[i]);
+                let getFeedId=Posts[i]._id.toString();
+                //console.log(a);
+                if(lastdataFromCache.Feed==null){
+                  for(let j=0;j<Object.keys(lastdataFromCache).length;j++){
+                    if(Posts[i]._id==lastdataFromCache[j]._id){
+                      console.log("push!");
+                      alreadyPush.push(i);
+                      break;
+                    }
+                  }
+                  var a = alreadyPush.find(a=>{
+                    return a===i;
+                  });
+                  console.log(a);
+                  if(a==null||isEmpty(alreadyPush)){
+                    lastdata.Feed.push(Posts[i]);
+                  }
+                }else{
+                  for(let j=0;j<Object.keys(lastdataFromCache.Feed).length;j++){
+                    //console.log("넣기전:"+Object.keys(lastdataFromCache.Feed).length);
+                    if(Posts[i]._id==lastdataFromCache.Feed[j]._id){
+                      console.log("push!");
+                      alreadyPush.push(i);
+                      break;
+                    }
+                  }
+                  var a = alreadyPush.find(a=>{
+                    return a===i;
+                  });
+                  //console.log("check : "+a);
+                  if(a==null||isEmpty(alreadyPush)||a==undefined){
+                    lastdata.Feed.push(Posts[i]);
+                  }
+                }
                 lastdata.isLiked[getFeedId]=isLikeList[getFeedId];
               }
             }
+            console.log(Object.keys(isLikeList).length,Object.keys(Posts).length);
+            console.log(Object.keys(lastdata.isLiked).length,Object.keys(lastdata.Feed).length);
+            //console.log(Posts);
             lastdata.Year=newYear;
             lastdata.Month=newMonth;
             lastdata.Date=newToday;
             lastdata.isLastFeed=0;
             postlist=lastdata;
             client.set(myId,JSON.stringify(lastdata));
+            console.log('redis 설정 완료'+Object.keys(lastdata).length)
           });
         }//30개 이하로 redis에 저장될때 조건 끝
-      }else if(req.body.year!=null&&Object.keys(postlist.Feed).length>onePageValue){//30개 이상 redis에 있을때
+      }else if(req.body.year!=null&&Object.keys(postlist.Feed).length>=onePageValue){//30개 이상 redis에 있을때
         console.log("재 피드요청 over 30");
         let lastdata;
         let Feed=[];
@@ -467,7 +779,7 @@ router.post('/getFeed', async function (req, res) {
           res.json(sendData);
         });
         break;
-      }else if(req.body.year==null&&Object.keys(postlist.Feed).length>onePageValue){
+      }else if(req.body.year==null&&Object.keys(postlist.Feed).length>=onePageValue){
         console.log("첫 피드 요청 over 30");
         let lastdata;
         let sendData={};
@@ -518,6 +830,7 @@ router.post('/getFeed', async function (req, res) {
         });
         break;
       }
+      //console.log("다시 위로"+Object.keys(postlist.Feed).length+req.body.year);
     } while (1);
   });
 });
